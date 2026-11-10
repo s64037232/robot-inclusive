@@ -40,7 +40,7 @@
 **1. Склонируйте репозиторий**
 
 ```bash
-git clone https://github.com/<ваш-логин>/robot-inclusive.git
+git clone https://github.com/s64037232/robot-inclusive.git
 cd robot-inclusive
 ```
 
