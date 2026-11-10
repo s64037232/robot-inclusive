@@ -131,39 +131,6 @@ def set_level(i):
     st.session_state.level=i
     new_task()
 
-def move_robot(dx,dy):
-    g=st.session_state.game
-    if not g["active"]:
-        return
-    level=LEVELS[st.session_state.level]
-    old=g["robot"][:]
-    nx=max(0,min(WIDTH-ROBOT_SIZE,old[0]+dx*level["speed"]))
-    ny=max(PANEL_HEIGHT,min(HEIGHT-ROBOT_SIZE-8,old[1]+dy*level["speed"]))
-    candidate=[nx,ny,ROBOT_SIZE,ROBOT_SIZE]
-    if any(overlaps(candidate,o) for o in g["obstacles"]):
-        st.session_state.mistakes+=1
-        g["robot"]=[WIDTH//2-ROBOT_SIZE//2, PANEL_HEIGHT+(HEIGHT-PANEL_HEIGHT)//2-ROBOT_SIZE//2]
-        g["message"]="Ой! Это преграда. Попробуй ещё раз!"
-        g["kind"]="bad"
-        return
-    g["robot"]=[nx,ny]
-    robot_rect=[nx,ny,ROBOT_SIZE,ROBOT_SIZE]
-    for cube in g["cubes"]:
-        if cube["wrong"] or not overlaps(robot_rect,cube["rect"]):
-            continue
-        if cube["correct"]:
-            g["active"]=False; g["completed"]=True
-            st.session_state.completed_count+=1
-            g["message"]="Верно! Молодец! Задание выполнено!"
-            g["kind"]="ok"
-        else:
-            cube["wrong"]=True
-            st.session_state.mistakes+=1
-            g["robot"]=[WIDTH//2-ROBOT_SIZE//2, PANEL_HEIGHT+(HEIGHT-PANEL_HEIGHT)//2-ROBOT_SIZE//2]
-            g["message"]="Ответ неверный! Попробуй ещё раз."
-            g["kind"]="bad"
-        break
-
 def render_board():
     g=st.session_state.game
     robot=g["robot"]
@@ -197,10 +164,32 @@ def render_board():
     parts.append('<circle cx="22" cy="27" r="9" fill="white"/><circle cx="50" cy="27" r="9" fill="white"/><circle cx="22" cy="27" r="4" fill="#1e293b"/><circle cx="50" cy="27" r="4" fill="#1e293b"/>')
     parts.append(f'<path d="{mouth}" fill="none" stroke="white" stroke-width="3" stroke-linecap="round"/>')
     parts.append('</g></svg>')
+    
+    # Добавляем мобильную панель управления (D-pad кнопки и блок под джойстик)
+    parts.append('''
+    <div style="background:#ffffff; padding:15px; border-top:2px solid #cbd5e1; display:flex; flex-wrap:wrap; justify-content:space-around; align-items:center; gap:15px;">
+        <div id="joystick-container" style="position:relative; width:130px; height:130px; background:#f8fafc; border:2px dashed #cbd5e1; border-radius:50%; display:flex; align-items:center; justify-content:center;">
+            <span style="font-size:12px; color:#64748b; font-family:Arial;">Джойстик</span>
+        </div>
+        <div style="display:grid; grid-template-columns: repeat(3, 60px); grid-template-rows: repeat(2, 50px); gap:6px; justify-content:center;">
+            <div></div>
+            <button id="mob-up" style="font-size:22px; background:#3b82f6; color:white; border:none; border-radius:10px; cursor:pointer; touch-action:manipulation;">⬆️</button>
+            <div></div>
+            <button id="mob-left" style="font-size:22px; background:#3b82f6; color:white; border:none; border-radius:10px; cursor:pointer; touch-action:manipulation;">⬅️</button>
+            <button id="mob-down" style="font-size:22px; background:#3b82f6; color:white; border:none; border-radius:10px; cursor:pointer; touch-action:manipulation;">⬇️</button>
+            <button id="mob-right" style="font-size:22px; background:#3b82f6; color:white; border:none; border-radius:10px; cursor:pointer; touch-action:manipulation;">➡️</button>
+        </div>
+    </div>
+    ''')
+    
     parts.append(f'<div id="game-message" style="padding:10px 14px;color:#1e293b;font:600 15px Arial;background:white">{g["message"]}</div>')
     parts.append(f'<div id="game-stats" style="padding:0 14px 8px;background:white;color:#475569;font:13px Arial">Верно выполнено: {st.session_state.completed_count} · Ошибки: {st.session_state.mistakes}</div>')
-    parts.append('<div style="padding:0 14px 12px;color:#475569;font:13px Arial">Кликни по полю, затем удерживай ← ↑ → ↓ или W A S D для плавного движения.</div></div>')
-    parts.append(f"""<script>
+    parts.append('<div style="padding:0 14px 12px;color:#475569;font:13px Arial">Используй клавиатуру (стрелки/WASD), сенсорный джойстик или экранные кнопки.</div></div>')
+    
+    # Подключаем библиотеку nipplejs для мобильного джойстика и логику управления
+    parts.append(f"""
+<script src="https://cdnjs.cloudflare.com/ajax/libs/nipplejs/0.10.1/nipplejs.min.js"></script>
+<script>
 (() => {{
   const frame = document.getElementById('game-frame');
   const svg = document.getElementById('game-svg');
@@ -220,6 +209,8 @@ def render_board():
   const minY = {PANEL_HEIGHT};
   const maxY = {HEIGHT-ROBOT_SIZE-8};
   const keys = new Set();
+  let joystickDx = 0, joystickDy = 0;
+
   const obstacles = [...svg.querySelectorAll('[id^="obstacle-"]')].map(el => ({{x:+el.getAttribute('x'),y:+el.getAttribute('y'),w:+el.getAttribute('width'),h:+el.getAttribute('height')}}));
   const cubes = [...svg.querySelectorAll('[id^="cube-"]')].map(el => ({{el,x:+el.querySelector('.cube-face').getAttribute('x'),y:+el.querySelector('.cube-face').getAttribute('y'),w:+el.querySelector('.cube-face').getAttribute('width'),h:+el.querySelector('.cube-face').getAttribute('height')}}));
   let last = performance.now();
@@ -231,6 +222,7 @@ def render_board():
   function hit(a,b) {{ return a.x < b.x+b.w && a.x+a.w > b.x && a.y < b.y+b.h && a.y+a.h > b.y; }}
   function resetRobot() {{ x={WIDTH//2-ROBOT_SIZE//2}; y={PANEL_HEIGHT+(HEIGHT-PANEL_HEIGHT)//2-ROBOT_SIZE//2}; }}
   function say(text, color='#1e293b') {{ message.textContent=text; message.style.color=color; }}
+  
   function buildQuestion() {{
     let a,b,answer,q;
     if(levelIndex===0) {{
@@ -263,32 +255,39 @@ def render_board():
     }});
     resetRobot(); robot.setAttribute('transform',`translate(${{x}} ${{y}})`);
     body.setAttribute('fill','#3b82f6'); active=true; completed=false; nextPending=false; started=performance.now();
-    say('Новое задание! Найди правильный ответ.'); keys.clear();
+    say('Новое задание! Найди правильный ответ.'); keys.clear(); joystickDx = 0; joystickDy = 0;
   }}
+
   function tick(now) {{
     const dt = Math.min((now-last)/1000, 0.05); last=now;
     if (active) {{
       updateStats();
-      if (timeLimit > 0 && (now-started)/1000 >= timeLimit) {{ active=false; keys.clear(); say('Время вышло. Нажми «ЗАДАНИЕ» и попробуй снова!', '#dc2626'); }}
-      let dx = (keys.has('ArrowRight')||keys.has('d')||keys.has('D')?1:0) - (keys.has('ArrowLeft')||keys.has('a')||keys.has('A')?1:0);
-      let dy = (keys.has('ArrowDown')||keys.has('s')||keys.has('S')?1:0) - (keys.has('ArrowUp')||keys.has('w')||keys.has('W')?1:0);
-      if (dx || dy) {{ const len=Math.hypot(dx,dy); dx/=len; dy/=len; }}
+      if (timeLimit > 0 && (now-started)/1000 >= timeLimit) {{ active=false; keys.clear(); joystickDx=0; joystickDy=0; say('Время вышло. Нажми «ЗАДАНИЕ» и попробуй снова!', '#dc2626'); }}
+      
+      let kbDx = (keys.has('ArrowRight')||keys.has('d')||keys.has('D')?1:0) - (keys.has('ArrowLeft')||keys.has('a')||keys.has('A')?1:0);
+      let kbDy = (keys.has('ArrowDown')||keys.has('s')||keys.has('S')?1:0) - (keys.has('ArrowUp')||keys.has('w')||keys.has('W')?1:0);
+      
+      let dx = kbDx !== 0 ? kbDx : joystickDx;
+      let dy = kbDy !== 0 ? kbDy : joystickDy;
+      
+      if (dx || dy) {{ const len=Math.hypot(dx,dy); if(len > 1) {{ dx/=len; dy/=len; }} }}
+      
       const nx=Math.max(0,Math.min(maxX,x+dx*speed*dt));
       const ny=Math.max(minY,Math.min(maxY,y+dy*speed*dt));
       const candidate={{x:nx,y:ny,w:robotSize,h:robotSize}};
       if (obstacles.some(o=>hit(candidate,o))) {{
-        resetRobot(); keys.clear(); mistakes++; updateStats(); say('Ой! Это преграда. Попробуй ещё раз!', '#dc2626');
+        resetRobot(); keys.clear(); joystickDx=0; joystickDy=0; mistakes++; updateStats(); say('Ой! Это преграда. Попробуй ещё раз!', '#dc2626');
       }} else {{
         x=nx; y=ny;
         for (const c of cubes) {{
           if (c.el.dataset.wrong==='true' || !hit(candidate,c)) continue;
           if (c.el.dataset.correct==='true') {{
-            active=false; completed=true; completedCount++; updateStats(); keys.clear(); body.setAttribute('fill','#22c55e');
+            active=false; completed=true; completedCount++; updateStats(); keys.clear(); joystickDx=0; joystickDy=0; body.setAttribute('fill','#22c55e');
             say('Верно! Молодец! Сейчас появится новое задание…', '#16a34a');
             if(!nextPending) {{ nextPending=true; setTimeout(buildQuestion, 1100); }}
           }} else {{
             c.el.dataset.wrong='true'; c.el.querySelector('.cube-face').setAttribute('fill','#94a3b8');
-            resetRobot(); keys.clear(); mistakes++; updateStats(); say('Ответ неверный! Попробуй ещё раз.', '#dc2626');
+            resetRobot(); keys.clear(); joystickDx=0; joystickDy=0; mistakes++; updateStats(); say('Ответ неверный! Попробуй ещё раз.', '#dc2626');
           }}
           break;
         }}
@@ -297,18 +296,57 @@ def render_board():
     }}
     requestAnimationFrame(tick);
   }}
+
+  // Обработка клавиатуры
   window.addEventListener('keydown', e => {{
     if (['ArrowUp','ArrowDown','ArrowLeft','ArrowRight',' ','w','a','s','d','W','A','S','D'].includes(e.key)) e.preventDefault();
     keys.add(e.key);
   }});
   window.addEventListener('keyup', e => keys.delete(e.key));
-  window.addEventListener('blur', () => keys.clear());
+  window.addEventListener('blur', () => {{ keys.clear(); joystickDx=0; joystickDy=0; }});
+
+  // Обработка экранных кнопок D-pad для мобильных
+  const bindBtn = (id, kx, ky) => {{
+    const el = document.getElementById(id);
+    if(!el) return;
+    ['touchstart', 'mousedown'].forEach(evt => el.addEventListener(evt, e => {{ e.preventDefault(); keys.add(kx); keys.add(ky); }}));
+    ['touchend', 'mouseup', 'mouseleave'].forEach(evt => el.addEventListener(evt, e => {{ e.preventDefault(); keys.delete(kx); keys.delete(ky); }}));
+  }};
+  bindBtn('mob-up', 'ArrowUp', 'ArrowUp');
+  bindBtn('mob-down', 'ArrowDown', 'ArrowDown');
+  bindBtn('mob-left', 'ArrowLeft', 'ArrowLeft');
+  bindBtn('mob-right', 'ArrowRight', 'ArrowRight');
+
+  // Инициализация сенсорного джойстика NippleJS
+  try {{
+    const manager = nipplejs.create({{
+      zone: document.getElementById('joystick-container'),
+      mode: 'static',
+      position: {{left: '50%', top: '50%'}},
+      color: '#3b82f6',
+      size: 100
+    }});
+    manager.on('move', (evt, data) => {{
+      if (data && data.vector) {{
+        joystickDx = data.vector.x;
+        joystickDy = -data.vector.y; // Инвертируем Y для экрана SVG
+      }}
+    }});
+    manager.on('end', () => {{
+      joystickDx = 0;
+      joystickDy = 0;
+    }});
+  }} catch(err) {{
+    console.log("Joystick init error:", err);
+  }}
+
   frame.addEventListener('pointerdown', () => frame.focus());
   frame.focus();
   requestAnimationFrame(tick);
 }})();
-</script>""")
-    components.html("".join(parts), height=HEIGHT+90, scrolling=False)
+</script>
+""")
+    components.html("".join(parts), height=HEIGHT+230, scrolling=False)
 
 # ---------- Interface ----------
 st.title("🤖 Robot-Inclusive")
@@ -342,17 +380,17 @@ with top[2]:
         set_level(new_index)
         st.rerun()
 with top[3]:
-    st.caption("Управление: стрелки / WASD")
+    st.caption("Управление: ПК / Смартфон")
 
 left,right=st.columns([3,1],gap="large")
 with left:
     render_board()
 with right:
     st.markdown("### Управление")
-    st.caption("Удерживай стрелки на клавиатуре или W, A, S, D — робот будет двигаться непрерывно.")
+    st.caption("• **ПК:** Стрелки или клавиши W, A, S, D.")
+    st.caption("• **Смартфон/Планшет:** Используйте виртуальный джойстик или кнопки направления прямо под игровым полем.")
     st.divider()
     st.caption("Счётчики обновляются прямо на игровом поле.")
-    st.caption("Если клавиши не реагируют, сначала кликни по игровому полю.")
 
 if g["completed"]:
     st.balloons()
